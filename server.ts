@@ -75,7 +75,7 @@ async function checkDbConnection(retries = 3) {
       }
     }
 
-    console.log(`[DB Check] 🟡 Connecting to DB... (${retries} retries left)`);
+    console.log(`[DB Check] 🟡 Connecting to DB... (${retries} retries left) at ${new Date().toISOString()}`);
     
     // Test the connection with a 10-second timeout
     const testConnection = async () => {
@@ -1404,8 +1404,9 @@ async function setupServer() {
       appType: 'spa',
     });
     app.use(vite.middlewares);
-  } else {
-    // In Vercel or Production
+  } else if (process.env.VERCEL !== '1') {
+    // Production but NOT Vercel (e.g. Docker, VPS)
+    // On Vercel, we let Vercel serve static files from /dist directly
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {

@@ -51,7 +51,7 @@ if (!rawDbUrl) {
 
 // Optimized Pool Configuration
 const createConfig = () => {
-  const connectionString = (process.env.DATABASE_URL || '').trim();
+  const connectionString = (dbUrl || '').trim();
   const isLocal = connectionString.includes('localhost') || connectionString.includes('127.0.0.1');
   
   const config: any = {
