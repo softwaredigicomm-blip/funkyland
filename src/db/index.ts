@@ -3,6 +3,7 @@ import pg from 'pg';
 import * as schema from './schema';
 import dotenv from 'dotenv';
 
+// Configure dotenv immediately at module root
 dotenv.config();
 
 const { Pool } = pg;
@@ -50,14 +51,17 @@ if (!rawDbUrl) {
 
 // Optimized Pool Configuration
 const createConfig = () => {
+  const connectionString = (process.env.DATABASE_URL || '').trim();
+  const isLocal = connectionString.includes('localhost') || connectionString.includes('127.0.0.1');
+  
   const config: any = {
-    connectionString: dbUrl || 'postgres://localhost:5432/postgres',
-    ssl: dbUrl && !dbUrl.includes('localhost') && !dbUrl.includes('127.0.0.1')
+    connectionString: connectionString || 'postgres://localhost:5432/postgres',
+    ssl: connectionString && !isLocal
       ? { rejectUnauthorized: false } 
       : false,
     max: 10,
     idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 20000, 
+    connectionTimeoutMillis: 10000, 
     maxUses: 7500,
     keepAlive: true,
   };
@@ -65,6 +69,7 @@ const createConfig = () => {
   return config;
 };
 
+// Create the pool once
 export const pool = new Pool(createConfig());
 
 pool.on('error', (err) => {

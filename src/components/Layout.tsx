@@ -308,10 +308,12 @@ export default function Layout() {
                 <AlertCircle size={24} />
               </div>
               <div className="flex-1 pt-1">
-                <h3 className="text-sm font-black text-amber-900 uppercase tracking-widest mb-1 italic">Important: Local Demo Mode</h3>
+                <h3 className="text-sm font-black text-amber-900 uppercase tracking-widest mb-1 italic">System Status: {dbError.includes('Operating in DEMO MODE') ? 'Local Demo Mode' : 'Database Error'}</h3>
                 <p className="text-sm font-bold text-amber-700 leading-relaxed">
-                  Your data is currently stored in server memory (Mock Mode). It will <span className="underline decoration-amber-300 decoration-2">NOT</span> sync across devices or persist permanently. 
-                  Please connect a <span className="font-black italic">PostgreSQL Database</span> via DATABASE_URL to enable full multi-device sync.
+                  {dbError}
+                  {dbError.includes('DATABASE_URL missing') && (
+                    <> Please connect a <span className="font-black italic">PostgreSQL Database</span> via <code className="bg-amber-100 px-1 rounded">DATABASE_URL</code> to enable full multi-device sync.</>
+                  )}
                 </p>
               </div>
               {isAdmin && (

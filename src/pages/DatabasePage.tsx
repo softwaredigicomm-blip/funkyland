@@ -25,6 +25,27 @@ export default function DatabasePage() {
     }
   };
 
+  const retryConnection = async () => {
+    setLoading(true);
+    try {
+      await fetch('/api/db-status/retry', { method: 'POST' });
+      // Poll a few times
+      let attempts = 0;
+      const interval = setInterval(async () => {
+        attempts++;
+        const res = await fetch('/api/db-status');
+        const data = await res.json();
+        setDbStatus(data);
+        if (data.connected || !data.checking || attempts > 10) {
+          clearInterval(interval);
+          setLoading(false);
+        }
+      }, 1000);
+    } catch (e) {
+      setLoading(false);
+    }
+  };
+
   const initDatabase = async () => {
     if (!window.confirm('This will attempt to create all necessary tables. Are you sure?')) return;
     setInitLoading(true);
@@ -109,6 +130,14 @@ export default function DatabasePage() {
               </div>
             )}
           </div>
+          
+          <button
+            onClick={retryConnection}
+            disabled={loading || dbStatus?.connected}
+            className="px-6 py-2 bg-indigo-50 border border-indigo-100 text-indigo-600 font-black text-xs uppercase tracking-widest rounded-xl hover:bg-indigo-100 transition-all disabled:opacity-50"
+          >
+            {dbStatus?.checking ? "Checking..." : "Retry Connection"}
+          </button>
           
           <button
             onClick={initDatabase}

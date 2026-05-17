@@ -74,25 +74,31 @@ async function checkDbConnection(retries = 3) {
 
     console.log(`[DB Check] 🟡 Connecting to DB... (${retries} retries left)`);
     
-    // Test the connection with a 5-second timeout
+    // Test the connection with a 10-second timeout
     const testConnection = async () => {
-      // Configuration for SSL (often needed for Supabase/Cloud DBs)
       const client = await pool.connect();
       try {
         await client.query('SELECT 1');
+        return true;
       } finally {
         client.release();
       }
     };
 
-    await Promise.race([
-      testConnection(),
-      new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Connection timed out (5s). Verify DATABASE_URL or white-list allowed IPs.')), 5000)
-      )
-    ]);
+    try {
+      await Promise.race([
+        testConnection(),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Connection timed out (10s). Verify DATABASE_URL or white-list allowed IPs.')), 10000)
+        )
+      ]);
+    } catch (raceErr) {
+      // Re-throw to the outer catch
+      throw raceErr;
+    }
 
     isDbAvailable = true;
+    lastDbError = null;
     console.log('[DB Check] ✅ SUCCESS! Database connected and ready.');
 
     // Auto-initialize tables
@@ -286,13 +292,31 @@ async function startServer() {
   });
 
   app.get('/api/db-status', (req, res) => {
+    const rawUrl = process.env.DATABASE_URL || '';
+    let host = 'unknown';
+    try { 
+      if (rawUrl && rawUrl.includes('@')) {
+        host = new URL(rawUrl).hostname; 
+      }
+    } catch(e) {}
+
     res.json({ 
       connected: isDbAvailable, 
       mode: isDbAvailable ? 'database' : 'mock',
       checking: dbCheckInProgress,
       planCount: mockStore.plans.length,
-      error: isDbAvailable ? null : (lastDbError || (process.env.DATABASE_URL ? 'Failed to connect. Check server logs.' : 'DATABASE_URL missing'))
+      host: host !== 'unknown' ? host : null,
+      error: isDbAvailable ? null : (lastDbError || (process.env.DATABASE_URL ? 'Connection failed. Check your DATABASE_URL format and SSL settings.' : 'DATABASE_URL is missing in environment variables.'))
     });
+  });
+
+  app.post('/api/db-status/retry', (req, res) => {
+    if (!dbCheckInProgress) {
+      console.log('[API] Manual database connection retry requested...');
+      checkDbConnection(1); // 1 retry only for manual request
+      return res.json({ message: 'Connection check started' });
+    }
+    res.json({ message: 'Check already in progress' });
   });
 
   // --- API Routes ---
