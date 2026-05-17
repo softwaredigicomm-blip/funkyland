@@ -23,6 +23,9 @@ let isDbAvailable = false;
 let dbCheckInProgress = false;
 let lastDbError: string | null = null;
 
+const app = express();
+export { app };
+
 // Robust connection check with faster timeout and better logging
 async function checkDbConnection(retries = 3) {
   if (dbCheckInProgress) return;
@@ -251,8 +254,7 @@ async function checkDbConnection(retries = 3) {
   }
 }
 
-async function startServer() {
-  const app = express();
+async function setupServer() {
   const PORT = 3000;
 
   // Start DB check in background so server begins listening immediately
@@ -1396,14 +1398,14 @@ async function startServer() {
     }
   });
 
-  // --- Vite Middleware ---
-  if (process.env.NODE_ENV !== 'production') {
+  if (process.env.NODE_ENV !== 'production' && process.env.VERCEL !== '1') {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
     });
     app.use(vite.middlewares);
   } else {
+    // In Vercel or Production
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
@@ -1411,9 +1413,14 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on http://0.0.0.0:${PORT}`);
-  });
+  // Only listen if not running as a Vercel serverless function
+  if (process.env.VERCEL !== '1') {
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`Server running on http://0.0.0.0:${PORT}`);
+    });
+  }
 }
 
-startServer();
+setupServer();
+
+export default app;
