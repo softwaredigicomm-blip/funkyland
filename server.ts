@@ -1,12 +1,13 @@
 import express from 'express';
 import path from 'path';
 import dns from 'node:dns';
-import { createServer as createViteServer } from 'vite';
 
 // FORCE IPv4 globally to fix Supabase/Cloud connectivity issues (Node v17+)
 if (typeof dns.setDefaultResultOrder === 'function') {
   dns.setDefaultResultOrder('ipv4first');
 }
+
+import { createServer as createViteServer } from 'vite';
 import { db, pool } from './src/db';
 import * as schema from './src/db/schema';
 import { eq, and, sql } from 'drizzle-orm';
@@ -254,15 +255,16 @@ async function checkDbConnection(retries = 3) {
   }
 }
 
-async function setupServer() {
-  const PORT = 3000;
 
-  // Start DB check in background so server begins listening immediately
-  console.log('[Server] Initializing database connection in background...');
+// Start DB check in background so server begins listening immediately
+console.log('[Server] Initializing database connection in background...');
+if (process.env.VERCEL !== '1') {
   checkDbConnection();
-  
-  app.use(express.json({ limit: '10mb' }));
-  app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+}
+
+const PORT = 3000;
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
   // --- Middleware for API JSON Safety ---
   app.use((req, res, next) => {
@@ -1398,6 +1400,8 @@ async function setupServer() {
     }
   });
 
+// Only setup Vite/Listen in non-serverless environments
+(async () => {
   if (process.env.NODE_ENV !== 'production' && process.env.VERCEL !== '1') {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -1406,7 +1410,6 @@ async function setupServer() {
     app.use(vite.middlewares);
   } else if (process.env.VERCEL !== '1') {
     // Production but NOT Vercel (e.g. Docker, VPS)
-    // On Vercel, we let Vercel serve static files from /dist directly
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
@@ -1420,8 +1423,6 @@ async function setupServer() {
       console.log(`Server running on http://0.0.0.0:${PORT}`);
     });
   }
-}
-
-setupServer();
+})();
 
 export default app;
