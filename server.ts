@@ -3,11 +3,11 @@ import path from 'path';
 import dns from 'node:dns';
 
 // FORCE IPv4 globally to fix Supabase/Cloud connectivity issues (Node v17+)
+// This MUST happen before any DB drivers are initialized
 if (typeof dns.setDefaultResultOrder === 'function') {
   dns.setDefaultResultOrder('ipv4first');
 }
 
-import { createServer as createViteServer } from 'vite';
 import { db, pool } from './src/db';
 import * as schema from './src/db/schema';
 import { eq, and, sql } from 'drizzle-orm';
@@ -296,6 +296,12 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
   });
 
   app.get('/api/db-status', (req, res) => {
+    // On Vercel, if we haven't connected yet, trigger a check in background
+    if (process.env.VERCEL === '1' && !isDbAvailable && !dbCheckInProgress && !lastDbError) {
+      console.log('[API] Vercel cold-start: Triggering async DB check...');
+      checkDbConnection(1); 
+    }
+
     const rawUrl = process.env.DATABASE_URL || '';
     let host = 'unknown';
     try { 
@@ -1403,11 +1409,16 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Only setup Vite/Listen in non-serverless environments
 (async () => {
   if (process.env.NODE_ENV !== 'production' && process.env.VERCEL !== '1') {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
+    try {
+      const { createServer: createViteServer } = await import('vite');
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: 'spa',
+      });
+      app.use(vite.middlewares);
+    } catch (e) {
+      console.error('[Server] Failed to initialize Vite:', e);
+    }
   } else if (process.env.VERCEL !== '1') {
     // Production but NOT Vercel (e.g. Docker, VPS)
     const distPath = path.join(process.cwd(), 'dist');

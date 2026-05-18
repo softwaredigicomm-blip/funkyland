@@ -267,6 +267,8 @@ export function PlayZoneProvider({ children }: { children: React.ReactNode }) {
       
       const contentType = healthRes.headers.get("content-type");
       if (!healthRes.ok || !contentType || !contentType.includes("application/json")) {
+        const text = await healthRes.text().catch(() => 'No body');
+        console.warn(`[Sync] Invalid health response. Status: ${healthRes.status}, Content-Type: ${contentType}, Body: ${text.substring(0, 100)}...`);
         setDbError('Server is recovering or returning invalid data. Retrying...');
         setIsSyncing(false);
         return;

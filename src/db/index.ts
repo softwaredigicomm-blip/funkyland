@@ -2,6 +2,12 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import pg from 'pg';
 import * as schema from './schema';
 import dotenv from 'dotenv';
+import dns from 'node:dns';
+
+// FORCE IPv4 globally to fix Supabase/Cloud connectivity issues (Node v17+)
+if (typeof dns.setDefaultResultOrder === 'function') {
+  dns.setDefaultResultOrder('ipv4first');
+}
 
 // Configure dotenv immediately at module root
 dotenv.config();
