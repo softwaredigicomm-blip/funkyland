@@ -302,27 +302,54 @@ export default function Layout() {
             <motion.div 
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: 'auto', opacity: 1 }}
-              className="mb-8 p-4 bg-amber-50 border-2 border-amber-100 rounded-[2rem] flex items-start gap-4 overflow-hidden no-print"
+              className={cn(
+                "mb-8 p-4 rounded-[2rem] flex items-start gap-4 overflow-hidden no-print border-2",
+                dbError.includes('waking up') 
+                  ? "bg-blue-50 border-blue-100 text-blue-900" 
+                  : "bg-amber-50 border-amber-100 text-amber-900"
+              )}
             >
-              <div className="w-12 h-12 bg-amber-100 text-amber-600 rounded-2xl flex items-center justify-center shrink-0">
-                <AlertCircle size={24} />
+              <div className={cn(
+                "w-12 h-12 rounded-2xl flex items-center justify-center shrink-0",
+                dbError.includes('waking up') 
+                  ? "bg-blue-100 text-blue-600" 
+                  : "bg-amber-100 text-amber-600"
+              )}>
+                {dbError.includes('waking up') ? <Loader2 size={24} className="animate-spin" /> : <AlertCircle size={24} />}
               </div>
               <div className="flex-1 pt-1">
-                <h3 className="text-sm font-black text-amber-900 uppercase tracking-widest mb-1 italic">System Status: {dbError.includes('Operating in DEMO MODE') ? 'Local Demo Mode' : 'Database Error'}</h3>
-                <p className="text-sm font-bold text-amber-700 leading-relaxed">
+                <h3 className="text-sm font-black uppercase tracking-widest mb-1 italic">
+                  {dbError.includes('waking up') 
+                    ? 'Cloud Server: Starting Up 🚀' 
+                    : (dbError.includes('Operating in DEMO MODE') ? 'Local Demo Mode 🏠' : 'Database Connection ⚠️')}
+                </h3>
+                <p className={cn(
+                  "text-sm font-bold leading-relaxed",
+                  dbError.includes('waking up') ? "text-blue-700" : "text-amber-700"
+                )}>
                   {dbError}
                   {dbError.includes('DATABASE_URL missing') && (
                     <> Please connect a <span className="font-black italic">PostgreSQL Database</span> via <code className="bg-amber-100 px-1 rounded">DATABASE_URL</code> to enable full multi-device sync.</>
                   )}
                 </p>
               </div>
-              {isAdmin && (
-                <button 
-                  onClick={() => navigate('/database')}
-                  className="px-6 py-3 bg-amber-600 text-white rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-amber-700 transition-all shadow-lg shadow-amber-200 self-center"
-                >
-                  Setup Sync
-                </button>
+              {dbError.includes('waking up') ? (
+                <div className="self-center pr-4">
+                  <div className="flex gap-1">
+                    {[1,2,3].map(i => (
+                      <div key={i} className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: `${i * 0.2}s` }} />
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                isAdmin && (
+                  <button 
+                    onClick={() => navigate('/database')}
+                    className="px-6 py-3 bg-amber-600 text-white rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-amber-700 transition-all shadow-lg shadow-amber-200 self-center"
+                  >
+                    Setup Sync
+                  </button>
+                )
               )}
             </motion.div>
           )}

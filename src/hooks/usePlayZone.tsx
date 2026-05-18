@@ -269,7 +269,7 @@ export function PlayZoneProvider({ children }: { children: React.ReactNode }) {
       if (!healthRes.ok || !contentType || !contentType.includes("application/json")) {
         const text = await healthRes.text().catch(() => 'No body');
         console.warn(`[Sync] Invalid health response. Status: ${healthRes.status}, Content-Type: ${contentType}, Body: ${text.substring(0, 100)}...`);
-        setDbError('Server is recovering or returning invalid data. Retrying...');
+        setDbError(`Cloud Server is initializing (Status: ${healthRes.status}). Retrying...`);
         setIsSyncing(false);
         return;
       }
@@ -278,7 +278,15 @@ export function PlayZoneProvider({ children }: { children: React.ReactNode }) {
       
       if (!healthData.connected) {
         const errorMsg = healthData.error || 'Failed to connect to database.';
-        setDbError(`Operating in DEMO MODE: ${errorMsg}`);
+        
+        // On Vercel, don't show a scary error if it's just pending/initializing
+        if (healthData.mode === 'vercel-pending') {
+          setDbError(`Cloud Server is waking up... Please wait.`);
+        } else if (errorMsg.includes('timed out') || errorMsg.includes('timeout')) {
+          setDbError(`Cloud Sync is taking longer than expected. Retrying in background...`);
+        } else {
+          setDbError(`Operating in DEMO MODE: ${errorMsg}`);
+        }
       } else {
         setDbError(null);
       }

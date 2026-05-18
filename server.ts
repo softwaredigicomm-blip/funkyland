@@ -25,236 +25,102 @@ const upload = multer({ storage: multer.memoryStorage() });
 let isDbAvailable = false;
 let dbCheckInProgress = false;
 let lastDbError: string | null = null;
+let dbCheckPromise: Promise<boolean> | null = null;
 
 const app = express();
 export { app };
 
 // Robust connection check with faster timeout and better logging
-async function checkDbConnection(retries = 3) {
-  if (dbCheckInProgress) return;
-  dbCheckInProgress = true;
+async function checkDbConnection(retries = 3): Promise<boolean> {
+  if (dbCheckInProgress && dbCheckPromise) return dbCheckPromise;
   
-  try {
-    const dbUrl = process.env.DATABASE_URL?.trim();
-    if (!dbUrl) {
-      isDbAvailable = false;
-      lastDbError = 'DATABASE_URL is missing in environment secrets.';
-      console.warn('[DB Check] !!! DATABASE_URL is EMPTY or MISSING !!!');
-      console.warn('[DB Check] 1. Go to Supabase -> Project Settings -> Database');
-      console.warn('[DB Check] 2. Copy "Connection String" (make sure to choose URI)');
-      console.warn('[DB Check] 3. Add it to Secrets in this app.');
-      console.warn('[DB Check] Falling back to MOCK (In-Memory) mode.');
-      dbCheckInProgress = false;
-      return;
-    }
-
-    if (dbUrl.startsWith('http')) {
-      console.warn('[DB Check] 🛑 INVALID DATABASE_URL: It looks like you provided the API URL (https://...) instead of the PostgreSQL Connection String (postgres://...).');
-      console.warn('[DB Check] Please use the URI found in Supabase -> Settings -> Database -> Connection String.');
-      isDbAvailable = false;
-      dbCheckInProgress = false;
-      return;
-    }
-
-    if (dbUrl.includes('supabase.co') && dbUrl.includes(':5432')) {
-      console.warn('[DB Check] ⚠️ WARNING: You are using Supabase on port 5432.');
-      console.warn('[DB Check] Direct connections to port 5432 often fail from Cloud environments.');
-      console.warn('[DB Check] PLEASE USE THE POOLER (Port 6543) instead.');
-    }
+  dbCheckPromise = (async () => {
+    dbCheckInProgress = true;
+    let currentRetry = 0;
     
-    if (dbUrl) {
-      if (dbUrl.includes('@') && dbUrl.split('@').length > 2) {
-        console.warn('[DB Check] 🛑 POTENTIAL PASSWORD ERROR: Your password seems to contain unencoded "@" characters.');
-        console.warn('[DB Check] Please replace "@" with "%40" in your connection string password.');
-        lastDbError = 'Password contains unencoded characters. Replace @ with %40.';
-      }
-      
+    while (currentRetry <= retries) {
       try {
-        const url = new URL(dbUrl);
-        console.log(`[DB Check] 🔍 Target Host: ${url.hostname}`);
-        console.log(`[DB Check] 🔍 Target Port: ${url.port || '5432'}`);
-      } catch (e) {
-        console.warn('[DB Check] ⚠️ Invalid URL format in DATABASE_URL.');
-      }
-    }
+        const dbUrl = process.env.DATABASE_URL?.trim();
+        if (!dbUrl) {
+          isDbAvailable = false;
+          lastDbError = 'DATABASE_URL is missing.';
+          return false;
+        }
 
-    console.log(`[DB Check] 🟡 Connecting to DB... (${retries} retries left) at ${new Date().toISOString()}`);
-    
-    // Test the connection with a 10-second timeout
-    const testConnection = async () => {
-      const client = await pool.connect();
-      try {
-        await client.query('SELECT 1');
-        return true;
-      } finally {
-        client.release();
-      }
-    };
-
-    try {
-      await Promise.race([
-        testConnection(),
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Connection timed out (10s). Verify DATABASE_URL or white-list allowed IPs.')), 10000)
-        )
-      ]);
-    } catch (raceErr) {
-      // Re-throw to the outer catch
-      throw raceErr;
-    }
-
-    isDbAvailable = true;
-    lastDbError = null;
-    console.log('[DB Check] ✅ SUCCESS! Database connected and ready.');
-
-    // Auto-initialize tables
-    try {
-      console.log('[DB Check] Running schema maintenance...');
-      const tables = [
-        `CREATE TABLE IF NOT EXISTS business_profile (id SERIAL PRIMARY KEY, name TEXT NOT NULL DEFAULT 'FunkyLand', sub_name TEXT, unit_name TEXT, address TEXT, gst_no TEXT, mobile TEXT, email TEXT, logo TEXT, accounting_year_start TEXT DEFAULT '01-04', grace_period_minutes INTEGER DEFAULT 10, overtime_rate_per_minute NUMERIC DEFAULT '2', updated_at TIMESTAMP DEFAULT NOW())`,
-        `CREATE TABLE IF NOT EXISTS staff (id TEXT PRIMARY KEY, password TEXT NOT NULL, full_name TEXT NOT NULL, role TEXT DEFAULT 'Cashier', phone TEXT, status TEXT DEFAULT 'active', joined_date TIMESTAMP DEFAULT NOW())`,
-        `CREATE TABLE IF NOT EXISTS categories (id SERIAL PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL)`,
-        `CREATE TABLE IF NOT EXISTS plans (id TEXT PRIMARY KEY, title TEXT NOT NULL, price NUMERIC NOT NULL, type TEXT DEFAULT 'Hourly', validation_days INTEGER DEFAULT 0, validation_time_min INTEGER DEFAULT 60, description TEXT, gst_slab INTEGER DEFAULT 18, created_at TIMESTAMP DEFAULT NOW())`,
-        `CREATE TABLE IF NOT EXISTS members (id TEXT PRIMARY KEY, parent_name TEXT NOT NULL, mobile_number TEXT NOT NULL, child_name TEXT, child_age INTEGER, plan_id TEXT REFERENCES plans(id), created_at TIMESTAMP DEFAULT NOW())`,
-        `CREATE TABLE IF NOT EXISTS services (id SERIAL PRIMARY KEY, category_id INTEGER REFERENCES categories(id), name TEXT NOT NULL, price NUMERIC DEFAULT '0', gst_slab INTEGER DEFAULT 18)`,
-        `CREATE TABLE IF NOT EXISTS catalogue (id SERIAL PRIMARY KEY, design_name TEXT NOT NULL, category_id INTEGER REFERENCES categories(id), image_url TEXT, estimate_price NUMERIC DEFAULT '0', description TEXT)`,
-        `CREATE TABLE IF NOT EXISTS socks_types (id SERIAL PRIMARY KEY, name TEXT NOT NULL, price NUMERIC NOT NULL, gst_slab INTEGER DEFAULT 5)`,
-        `CREATE TABLE IF NOT EXISTS billings (id SERIAL PRIMARY KEY, customer_id TEXT REFERENCES members(id), customer_name TEXT, handled_by TEXT REFERENCES staff(id), mobile_no TEXT, plan_id TEXT REFERENCES plans(id), duration_min INTEGER, person_count INTEGER DEFAULT 1, socks_counts JSONB DEFAULT '{}', items JSONB DEFAULT '[]', subtotal NUMERIC NOT NULL, total_gst NUMERIC NOT NULL, payable NUMERIC NOT NULL, payment_mode TEXT, created_at TIMESTAMP DEFAULT NOW())`,
-        `CREATE TABLE IF NOT EXISTS events (id TEXT PRIMARY KEY, category_id INTEGER REFERENCES categories(id), customer_id TEXT REFERENCES members(id), customer_name TEXT, phone_number TEXT, booking_charges NUMERIC DEFAULT '0', grand_total NUMERIC DEFAULT '0', gst_percent INTEGER DEFAULT 18, advance_amount NUMERIC DEFAULT '0', payment_mode TEXT, payment_status TEXT DEFAULT 'Pending', booking_date DATE, created_at TIMESTAMP DEFAULT NOW())`,
-        `CREATE TABLE IF NOT EXISTS expenses (id SERIAL PRIMARY KEY, category_id INTEGER REFERENCES categories(id), amount NUMERIC NOT NULL, description TEXT, vendor_name TEXT, date TIMESTAMP WITH TIME ZONE DEFAULT NOW(), created_at TIMESTAMP DEFAULT NOW())`,
-        `CREATE TABLE IF NOT EXISTS play_entries (id TEXT PRIMARY KEY, child_name TEXT NOT NULL, parent_name TEXT, mobile_number TEXT, start_time TIMESTAMP DEFAULT NOW(), end_time TIMESTAMP, plan_id TEXT REFERENCES plans(id), plan_name TEXT, amount NUMERIC DEFAULT '0', status TEXT DEFAULT 'active', member_id TEXT REFERENCES members(id), person_count INTEGER DEFAULT 1, socks_counts JSONB DEFAULT '{}', invoice_id TEXT, overtime_amount NUMERIC DEFAULT '0', staff_id TEXT REFERENCES staff(id), handled_by TEXT, created_at TIMESTAMP DEFAULT NOW())`,
-        `CREATE TABLE IF NOT EXISTS system_settings (key TEXT PRIMARY KEY, value JSONB NOT NULL, updated_at TIMESTAMP DEFAULT NOW())`,
-        `CREATE TABLE IF NOT EXISTS event_services (event_id TEXT NOT NULL REFERENCES events(id), service_id INTEGER NOT NULL REFERENCES services(id), PRIMARY KEY(event_id, service_id))`,
-        `CREATE TABLE IF NOT EXISTS walk_in_customers (id SERIAL PRIMARY KEY, billno TEXT, cid TEXT, mode TEXT, grandtotal NUMERIC, subtotal NUMERIC, paybleamount NUMERIC, discount NUMERIC, planamount NUMERIC, shokesprice NUMERIC, extraamount NUMERIC, noofperson INTEGER, insdate TIMESTAMP)`,
-        `CREATE TABLE IF NOT EXISTS walk_in_members (id SERIAL PRIMARY KEY, memberid TEXT, name TEXT, mno TEXT, status TEXT, shokesprice NUMERIC, validationdate TEXT)`
-      ];
-      for (const sqlQuery of tables) {
-        await db.execute(sql.raw(sqlQuery));
-      }
-
-      // Column Migrations (Ensure columns exist in case tables were created earlier)
-      console.log('[DB Check] Running column migrations...');
-      const migrations = [
-        `ALTER TABLE billings ADD COLUMN IF NOT EXISTS mobile_no TEXT`,
-        `ALTER TABLE events ADD COLUMN IF NOT EXISTS phone_number TEXT`,
-        `ALTER TABLE business_profile ADD COLUMN IF NOT EXISTS logo TEXT`
-      ];
-      for (const m of migrations) {
-        try { await db.execute(sql.raw(m)); } catch (e) {}
-      }
-      
-      console.log('[DB Check] Schema maintenance complete.');
-    } catch (initErr) {
-      console.warn('[DB Check] Schema init check (non-fatal error):', (initErr as Error).message);
-      console.warn('[DB Check] If you are using a Supabase Pooler in "Transaction" mode, DDL (CREATE TABLE) might be restricted.');
-      console.warn('[DB Check] Please run the SQL scripts found in /supabase_schema.sql manually in your Supabase SQL Editor.');
-    }
-
-    // Log stats for debugging
-    try {
-      const staffCount = await db.select({ count: sql`count(*)` }).from(schema.staff);
-      console.log(`[DB Check] Database contains ${(staffCount[0] as any).count} staff members.`);
-    } catch (statsErr) {
-      console.error('[DB Check] ❌ Failed to fetch database stats:', (statsErr as Error).message);
-    }
-
-    
-    // Seed default admin if table is empty
-    try {
-      const existingStaff = await db.select().from(schema.staff);
-      if (existingStaff.length === 0) {
-        console.log('[DB Check] Seeding default admin...');
-        await db.insert(schema.staff).values({
-          id: 'admin',
-          password: '12345',
-          full_name: 'Administrator',
-          role: 'admin',
-          phone: '9999999999',
-          status: 'active'
-        });
-      }
-    } catch (staffSeedErr) {
-      console.error('[DB Check] Failed to seed staff:', (staffSeedErr as Error).message);
-    }
-
-    // Seed socks types if empty
-    try {
-      const existingSocks = await db.select().from(schema.socksTypes);
-      if (existingSocks.length === 0) {
-        console.log('[DB Check] Seeding default socks types...');
-        await db.insert(schema.socksTypes).values([
-          { name: 'Small Socks', price: '40', gstSlab: 5 },
-          { name: 'Medium Socks', price: '50', gstSlab: 5 }
-        ]);
-      }
-
-      // Seed default plans if missing
-      console.log(`[DB Check] Checking plans seeding (mockStore has ${mockStore.plans.length} plans)`);
-      for (const p of mockStore.plans) {
-        try {
-          const existing = await db.select().from(schema.plans).where(eq(schema.plans.id, p.id)).limit(1);
-          if (existing.length === 0) {
-            console.log(`[DB Check] Seeding missing plan: ${p.id} (${p.title})`);
-            await db.insert(schema.plans).values({
-              ...p,
-              price: p.price.toString()
-            });
+        console.log(`[DB Check] 🟡 Attempt ${currentRetry + 1}/${retries + 1}...`);
+        
+        const testConnection = async () => {
+          const client = await pool.connect();
+          try {
+            await client.query('SELECT 1');
+            return true;
+          } finally {
+            client.release();
           }
-        } catch (planSeedErr) {
-          console.error(`[DB Check] Failed to seed plan ${p.id}:`, (planSeedErr as Error).message);
+        };
+
+        await Promise.race([
+          testConnection(),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Pool timeout (4s).')), 4000)
+          )
+        ]);
+
+        isDbAvailable = true;
+        lastDbError = null;
+        console.log('[DB Check] ✅ Connected.');
+        
+        // Background schema check if needed
+        (async () => {
+          try {
+            console.log('[DB Check] Running schema maintenance...');
+            const tables = [
+              `CREATE TABLE IF NOT EXISTS business_profile (id SERIAL PRIMARY KEY, name TEXT NOT NULL DEFAULT 'FunkyLand', sub_name TEXT, unit_name TEXT, address TEXT, gst_no TEXT, mobile TEXT, email TEXT, logo TEXT, accounting_year_start TEXT DEFAULT '01-04', grace_period_minutes INTEGER DEFAULT 10, overtime_rate_per_minute NUMERIC DEFAULT '2', updated_at TIMESTAMP DEFAULT NOW())`,
+              `CREATE TABLE IF NOT EXISTS staff (id TEXT PRIMARY KEY, password TEXT NOT NULL, full_name TEXT NOT NULL, role TEXT DEFAULT 'Cashier', phone TEXT, status TEXT DEFAULT 'active', joined_date TIMESTAMP DEFAULT NOW())`,
+              `CREATE TABLE IF NOT EXISTS categories (id SERIAL PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL)`,
+              `CREATE TABLE IF NOT EXISTS plans (id TEXT PRIMARY KEY, title TEXT NOT NULL, price NUMERIC NOT NULL, type TEXT DEFAULT 'Hourly', validation_days INTEGER DEFAULT 0, validation_time_min INTEGER DEFAULT 60, description TEXT, gst_slab INTEGER DEFAULT 18, created_at TIMESTAMP DEFAULT NOW())`,
+              `CREATE TABLE IF NOT EXISTS members (id TEXT PRIMARY KEY, parent_name TEXT NOT NULL, mobile_number TEXT NOT NULL, child_name TEXT, child_age INTEGER, plan_id TEXT REFERENCES plans(id), created_at TIMESTAMP DEFAULT NOW())`,
+              `CREATE TABLE IF NOT EXISTS services (id SERIAL PRIMARY KEY, category_id INTEGER REFERENCES categories(id), name TEXT NOT NULL, price NUMERIC DEFAULT '0', gst_slab INTEGER DEFAULT 18)`,
+              `CREATE TABLE IF NOT EXISTS catalogue (id SERIAL PRIMARY KEY, design_name TEXT NOT NULL, category_id INTEGER REFERENCES categories(id), image_url TEXT, estimate_price NUMERIC DEFAULT '0', description TEXT)`,
+              `CREATE TABLE IF NOT EXISTS socks_types (id SERIAL PRIMARY KEY, name TEXT NOT NULL, price NUMERIC NOT NULL, gst_slab INTEGER DEFAULT 5)`,
+              `CREATE TABLE IF NOT EXISTS billings (id SERIAL PRIMARY KEY, customer_id TEXT REFERENCES members(id), customer_name TEXT, handled_by TEXT REFERENCES staff(id), mobile_no TEXT, plan_id TEXT REFERENCES plans(id), duration_min INTEGER, person_count INTEGER DEFAULT 1, socks_counts JSONB DEFAULT '{}', items JSONB DEFAULT '[]', subtotal NUMERIC NOT NULL, total_gst NUMERIC NOT NULL, payable NUMERIC NOT NULL, payment_mode TEXT, created_at TIMESTAMP DEFAULT NOW())`,
+              `CREATE TABLE IF NOT EXISTS events (id TEXT PRIMARY KEY, category_id INTEGER REFERENCES categories(id), customer_id TEXT REFERENCES members(id), customer_name TEXT, phone_number TEXT, booking_charges NUMERIC DEFAULT '0', grand_total NUMERIC DEFAULT '0', gst_percent INTEGER DEFAULT 18, advance_amount NUMERIC DEFAULT '0', payment_mode TEXT, payment_status TEXT DEFAULT 'Pending', booking_date DATE, created_at TIMESTAMP DEFAULT NOW())`,
+              `CREATE TABLE IF NOT EXISTS expenses (id SERIAL PRIMARY KEY, category_id INTEGER REFERENCES categories(id), amount NUMERIC NOT NULL, description TEXT, vendor_name TEXT, date TIMESTAMP WITH TIME ZONE DEFAULT NOW(), created_at TIMESTAMP DEFAULT NOW())`,
+              `CREATE TABLE IF NOT EXISTS play_entries (id TEXT PRIMARY KEY, child_name TEXT NOT NULL, parent_name TEXT, mobile_number TEXT, start_time TIMESTAMP DEFAULT NOW(), end_time TIMESTAMP, plan_id TEXT REFERENCES plans(id), plan_name TEXT, amount NUMERIC DEFAULT '0', status TEXT DEFAULT 'active', member_id TEXT REFERENCES members(id), person_count INTEGER DEFAULT 1, socks_counts JSONB DEFAULT '{}', invoice_id TEXT, overtime_amount NUMERIC DEFAULT '0', staff_id TEXT REFERENCES staff(id), handled_by TEXT, created_at TIMESTAMP DEFAULT NOW())`,
+              `CREATE TABLE IF NOT EXISTS system_settings (key TEXT PRIMARY KEY, value JSONB NOT NULL, updated_at TIMESTAMP DEFAULT NOW())`,
+              `CREATE TABLE IF NOT EXISTS event_services (event_id TEXT NOT NULL REFERENCES events(id), service_id INTEGER NOT NULL REFERENCES services(id), PRIMARY KEY(event_id, service_id))`,
+              `CREATE TABLE IF NOT EXISTS walk_in_customers (id SERIAL PRIMARY KEY, billno TEXT, cid TEXT, mode TEXT, grandtotal NUMERIC, subtotal NUMERIC, paybleamount NUMERIC, discount NUMERIC, planamount NUMERIC, shokesprice NUMERIC, extraamount NUMERIC, noofperson INTEGER, insdate TIMESTAMP)`,
+              `CREATE TABLE IF NOT EXISTS walk_in_members (id SERIAL PRIMARY KEY, memberid TEXT, name TEXT, mno TEXT, status TEXT, shokesprice NUMERIC, validationdate TEXT)`
+            ];
+            for (const sqlQuery of tables) {
+              await db.execute(sql.raw(sqlQuery));
+            }
+            console.log('[DB Check] Schema maintenance complete.');
+          } catch (e) {
+            console.warn('[DB Check] Schema background check failed:', (e as Error).message);
+          }
+        })();
+
+        return true;
+      } catch (err) {
+        currentRetry++;
+        lastDbError = (err as Error).message;
+        console.warn(`[DB Check] ⚠️ Attempt ${currentRetry} failed: ${lastDbError}`);
+        
+        if (currentRetry <= retries) {
+          await new Promise(resolve => setTimeout(resolve, 500));
         }
       }
-      console.log('[DB Check] Plans seeding check complete.');
-      lastDbError = null;
-    } catch (seedErr) {
-      console.error('[DB Check] Seeding skip/fail:', (seedErr as Error).message);
-    }
-  } catch (err) {
-    const error = err as any;
-    lastDbError = error.message;
-    console.error(`[DB Check] ❌ FAILED: ${error.message}`);
-    if (error.code) console.error(`[DB Check] Database Error Code: ${error.code}`);
-    if (error.detail) console.error(`[DB Check] Database Error Details: ${error.detail}`);
-    
-    if (error.code === '28P01') {
-      lastDbError = 'Invalid Database Password. Please check your DATABASE_URL secret.';
-      console.error('[DB Check] 🛑 FATAL: INVALID PASSWORD in DATABASE_URL.');
-      console.error('[DB Check] 1. Go to Supabase -> Project Settings -> Database.');
-      console.error('[DB Check] 2. Reset your password if you forgot it.');
-      console.error('[DB Check] 3. Update the DATABASE_URL in the app secrets.');
-    }
-    if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
-      const dbUrl = process.env.DATABASE_URL || '';
-      let host = 'unknown';
-      try { host = new URL(dbUrl).hostname; } catch(e) {}
-      
-      lastDbError = `Connection Refused to ${host}. Direct connections (5432) often fail on IPv4-only networks.`;
-      console.error(`[DB Check] 🛑 CONNECTION REFUSED to ${host}`);
-      console.error('[DB Check] --- ALTERNATIVE SYNCHRONIZATION METHODS ---');
-      console.error('[DB Check] 1. USE THE SUPABASE POOLER:');
-      console.error('   Go to Supabase Dashboard -> Database -> Connection String.');
-      console.error('   Switch to "Transaction" mode and use port 6543.');
-      console.error('[DB Check] 2. USE SESSION POOLER (PORT 5432) WITH ?sslmode=require');
-      console.error('[DB Check] 3. ADD ?sslmode=no-verify to your connection string.');
-      console.error('[DB Check] 4. ENSURE YOUR PASSWORD IS CORRECT (special characters must be URL-encoded).');
     }
     
     isDbAvailable = false;
-    
-    if (retries > 0) {
-      const delay = 3000; 
-      console.log(`[DB Check] Retrying in ${delay / 1000}s...`);
-      setTimeout(() => {
-        dbCheckInProgress = false;
-        checkDbConnection(retries - 1);
-      }, delay);
-      return;
-    } else {
-      console.error('[DB Check] 🏁 ALL RETRIES EXHAUSTED. Operating in DISCONNECTED (MOCK) mode.');
-    }
-  } finally {
+    return false;
+  })().finally(() => {
     dbCheckInProgress = false;
-  }
+    dbCheckPromise = null;
+  });
+  
+  return dbCheckPromise;
 }
 
 
@@ -300,13 +166,13 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
   app.get('/api/db-status', async (req, res) => {
     const isVercel = process.env.VERCEL === '1';
     
-    // On Vercel cold-start, wait for a connection check if we don't know the status yet
-    if (isVercel && !isDbAvailable && !lastDbError && !dbCheckInProgress) {
-      console.log('[API] Vercel cold-start: Executing synchronous DB check...');
-      // Use a shorter timeout for the initial check to prevent Lambda timeout
+    // On Vercel cold-start or if connection was lost, wait for a connection check
+    if (isVercel && !isDbAvailable) {
+      console.log('[API] Vercel: Ensuring database connection before status check...');
+      // Increase timeout for the synchronous check on Vercel to 9s (just under 10s lambda limit)
       await Promise.race([
         checkDbConnection(1),
-        new Promise(resolve => setTimeout(resolve, 5000))
+        new Promise(resolve => setTimeout(resolve, 9000))
       ]); 
     }
 
@@ -325,17 +191,28 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
       checking: dbCheckInProgress,
       planCount: mockStore.plans.length,
       host: host !== 'unknown' ? host : null,
-      error: isDbAvailable ? null : (lastDbError || (process.env.DATABASE_URL ? 'Connection attempt failed. Check Vercel logs.' : 'DATABASE_URL environment variable is MISSING in Vercel settings.'))
+      error: isDbAvailable ? null : (lastDbError || (process.env.DATABASE_URL ? 'Connection attempt timed out. Check Vercel logs or use the Pooler.' : 'DATABASE_URL environment variable is MISSING in Vercel settings.'))
     });
   });
 
-  app.post('/api/db-status/retry', (req, res) => {
-    if (!dbCheckInProgress) {
-      console.log('[API] Manual database connection retry requested...');
-      checkDbConnection(1); // 1 retry only for manual request
-      return res.json({ message: 'Connection check started' });
+  app.post('/api/db-status/retry', async (req, res) => {
+    console.log('[API] Manual database connection retry requested...');
+    await checkDbConnection(1); 
+    res.json({ connected: isDbAvailable, error: lastDbError });
+  });
+
+  // --- Middleware for Vercel to ensure DB is connected before any API call ---
+  app.use('/api', async (req, res, next) => {
+    const isVercel = process.env.VERCEL === '1';
+    // Skip for the status check itself to avoid recursion or redundant logs
+    if (isVercel && !isDbAvailable && req.path !== '/db-status' && req.path !== '/db-status/retry') {
+      console.log(`[API Proxy] Awaiting connection for ${req.path}...`);
+      await Promise.race([
+        checkDbConnection(0), // Just try once
+        new Promise(resolve => setTimeout(resolve, 5000))
+      ]);
     }
-    res.json({ message: 'Check already in progress' });
+    next();
   });
 
   // --- API Routes ---

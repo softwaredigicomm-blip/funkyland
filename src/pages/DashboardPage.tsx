@@ -277,22 +277,39 @@ export default function DashboardPage() {
       </div>
 
       {dbError && (
-        <div className="mx-4 md:mx-0 bg-amber-50 border-2 border-amber-100 rounded-2xl p-4 flex items-center gap-4 text-amber-800 shadow-sm animate-pulse">
-          <div className="w-10 h-10 bg-amber-100 rounded-xl flex items-center justify-center text-xl">⚠️</div>
+        <div className={cn(
+          "mx-4 md:mx-0 border-2 rounded-2xl p-4 flex items-center gap-4 shadow-sm animate-pulse",
+          dbError.includes('waking up') 
+            ? "bg-blue-50 border-blue-100 text-blue-800" 
+            : "bg-amber-50 border-amber-100 text-amber-800"
+        )}>
+          <div className={cn(
+            "w-10 h-10 rounded-xl flex items-center justify-center text-xl",
+            dbError.includes('waking up') ? "bg-blue-100" : "bg-amber-100"
+          )}>
+            {dbError.includes('waking up') ? "🚀" : "⚠️"}
+          </div>
           <div className="flex-1">
-            <h3 className="font-bold text-sm uppercase tracking-wider">Database Connection Issue</h3>
+            <h3 className="font-bold text-sm uppercase tracking-wider">
+              {dbError.includes('waking up') ? "Cloud Server Starting" : "Database Connection Issue"}
+            </h3>
             <p className="text-xs opacity-80">{dbError}</p>
           </div>
           <div className="flex gap-2">
-            <button 
-              onClick={() => setIsTroubleshootingOpen(true)}
-              className="px-4 py-2 bg-white border border-amber-200 hover:bg-amber-100 rounded-lg text-xs font-bold transition-colors"
-            >
-              How to Fix?
-            </button>
+            {!dbError.includes('waking up') && (
+              <button 
+                onClick={() => setIsTroubleshootingOpen(true)}
+                className="px-4 py-2 bg-white border border-amber-200 hover:bg-amber-100 rounded-lg text-xs font-bold transition-colors"
+              >
+                How to Fix?
+              </button>
+            )}
             <button 
               onClick={() => window.location.reload()}
-              className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition-colors"
+              className={cn(
+                "px-4 py-2 text-white rounded-lg text-xs font-bold transition-colors",
+                dbError.includes('waking up') ? "bg-blue-600 hover:bg-blue-700" : "bg-amber-600 hover:bg-amber-700"
+              )}
             >
               Retry
             </button>

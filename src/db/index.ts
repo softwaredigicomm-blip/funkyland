@@ -77,10 +77,10 @@ const createConfig = () => {
     ssl: connectionString && !isLocal
       ? { rejectUnauthorized: false } 
       : false,
-    max: 10,
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 10000, 
-    maxUses: 7500,
+    max: 2, // Low for serverless to prevent Supabase connection exhaustion
+    idleTimeoutMillis: 10000,
+    connectionTimeoutMillis: 5000, 
+    maxUses: 100, // Recycle quickly in serverless
     keepAlive: true,
   };
 
