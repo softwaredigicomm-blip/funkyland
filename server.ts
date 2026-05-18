@@ -10,13 +10,13 @@ if (typeof dns.setDefaultResultOrder === 'function') {
   dns.setDefaultResultOrder('ipv4first');
 }
 
-import { db, pool } from './src/db';
-import * as schema from './src/db/schema';
+import { db, pool } from './src/db/index.ts';
+import * as schema from './src/db/schema.ts';
 import { eq, and, sql } from 'drizzle-orm';
 import multer from 'multer';
 import * as XLSX from 'xlsx';
 import dotenv from 'dotenv';
-import { mockStore } from './server/mockStore';
+import { mockStore } from './server/mockStore.ts';
 
 dotenv.config();
 
