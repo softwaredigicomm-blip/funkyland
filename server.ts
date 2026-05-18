@@ -10,13 +10,13 @@ if (typeof dns.setDefaultResultOrder === 'function') {
   dns.setDefaultResultOrder('ipv4first');
 }
 
-import { db, pool } from './src/db/index.ts';
-import * as schema from './src/db/schema.ts';
+import { db, pool } from './src/db';
+import * as schema from './src/db/schema';
 import { eq, and, sql } from 'drizzle-orm';
 import multer from 'multer';
 import * as XLSX from 'xlsx';
 import dotenv from 'dotenv';
-import { mockStore } from './server_data/mockStore.ts';
+import { mockStore } from './server/mockStore';
 
 dotenv.config();
 
@@ -62,7 +62,7 @@ async function checkDbConnection(retries = 3): Promise<boolean> {
         await Promise.race([
           testConnection(),
           new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Pool timeout (4s).')), 4000)
+            setTimeout(() => reject(new Error('Pool timeout (8s). Supabase might be waking up.')), 8000)
           )
         ]);
 

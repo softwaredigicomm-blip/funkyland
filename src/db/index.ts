@@ -1,6 +1,6 @@
 import { drizzle } from 'drizzle-orm/node-postgres';
 import pg from 'pg';
-import * as schema from './schema.ts';
+import * as schema from './schema';
 import dotenv from 'dotenv';
 import dns from 'node:dns';
 
@@ -81,7 +81,7 @@ const createConfig = () => {
     idleTimeoutMillis: 10000,
     connectionTimeoutMillis: 5000, 
     maxUses: 100, // Recycle quickly in serverless
-    keepAlive: true,
+    keepAlive: false, // Prevents stale connection issues in serverless
   };
 
   if (connectionString.includes('supabase.co')) {

@@ -48,7 +48,7 @@ const SLIDES = [
 ];
 
 export default function DashboardPage() {
-  const { entries, events, invoices, exportToCSV, categories, isAdmin, dbError, refreshData } = usePlayZone();
+  const { entries, events, invoices, exportToCSV, categories, isAdmin, dbError, refreshData, isSyncing } = usePlayZone();
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [isPasteModalOpen, setIsPasteModalOpen] = useState(false);
   const [dateRange, setDateRange] = useState({ from: '', to: '' });
@@ -300,18 +300,26 @@ export default function DashboardPage() {
               <button 
                 onClick={() => setIsTroubleshootingOpen(true)}
                 className="px-4 py-2 bg-white border border-amber-200 hover:bg-amber-100 rounded-lg text-xs font-bold transition-colors"
+                id="troubleshoot-btn"
               >
                 How to Fix?
               </button>
             )}
             <button 
-              onClick={() => window.location.reload()}
+              onClick={() => {
+                if (dbError.includes('waking up')) {
+                  refreshData();
+                } else {
+                  window.location.reload();
+                }
+              }}
               className={cn(
-                "px-4 py-2 text-white rounded-lg text-xs font-bold transition-colors",
+                "px-4 py-2 text-white rounded-lg text-xs font-bold transition-colors shadow-sm",
                 dbError.includes('waking up') ? "bg-blue-600 hover:bg-blue-700" : "bg-amber-600 hover:bg-amber-700"
               )}
+              id="db-retry-btn"
             >
-              Retry
+              {dbError.includes('waking up') ? (isSyncing ? 'Checking...' : 'Refresh Status') : 'Retry Connection'}
             </button>
           </div>
         </div>
