@@ -2,6 +2,8 @@ import express from 'express';
 import path from 'path';
 import dns from 'node:dns';
 
+console.log('[Module] server.ts is loading...');
+
 // FORCE IPv4 globally to fix Supabase/Cloud connectivity issues (Node v17+)
 // This MUST happen before any DB drivers are initialized
 if (typeof dns.setDefaultResultOrder === 'function') {
@@ -295,28 +297,35 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
     next();
   });
 
-  app.get('/api/db-status', (req, res) => {
-    // On Vercel, if we haven't connected yet, trigger a check in background
-    if (process.env.VERCEL === '1' && !isDbAvailable && !dbCheckInProgress && !lastDbError) {
-      console.log('[API] Vercel cold-start: Triggering async DB check...');
-      checkDbConnection(1); 
+  app.get('/api/db-status', async (req, res) => {
+    const isVercel = process.env.VERCEL === '1';
+    
+    // On Vercel cold-start, wait for a connection check if we don't know the status yet
+    if (isVercel && !isDbAvailable && !lastDbError && !dbCheckInProgress) {
+      console.log('[API] Vercel cold-start: Executing synchronous DB check...');
+      // Use a shorter timeout for the initial check to prevent Lambda timeout
+      await Promise.race([
+        checkDbConnection(1),
+        new Promise(resolve => setTimeout(resolve, 5000))
+      ]); 
     }
 
     const rawUrl = process.env.DATABASE_URL || '';
     let host = 'unknown';
     try { 
       if (rawUrl && rawUrl.includes('@')) {
-        host = new URL(rawUrl).hostname; 
+        const urlPart = rawUrl.split('@')[1];
+        host = urlPart.split(':')[0].split('/')[0];
       }
     } catch(e) {}
 
     res.json({ 
       connected: isDbAvailable, 
-      mode: isDbAvailable ? 'database' : 'mock',
+      mode: isDbAvailable ? 'database' : (isVercel ? 'vercel-pending' : 'mock'),
       checking: dbCheckInProgress,
       planCount: mockStore.plans.length,
       host: host !== 'unknown' ? host : null,
-      error: isDbAvailable ? null : (lastDbError || (process.env.DATABASE_URL ? 'Connection failed. Check your DATABASE_URL format and SSL settings.' : 'DATABASE_URL is missing in environment variables.'))
+      error: isDbAvailable ? null : (lastDbError || (process.env.DATABASE_URL ? 'Connection attempt failed. Check Vercel logs.' : 'DATABASE_URL environment variable is MISSING in Vercel settings.'))
     });
   });
 

@@ -4,6 +4,8 @@ import * as schema from './schema';
 import dotenv from 'dotenv';
 import dns from 'node:dns';
 
+console.log('[Module] src/db/index.ts is loading...');
+
 // FORCE IPv4 globally to fix Supabase/Cloud connectivity issues (Node v17+)
 if (typeof dns.setDefaultResultOrder === 'function') {
   dns.setDefaultResultOrder('ipv4first');
@@ -36,10 +38,20 @@ function sanitizeConnectionUrl(url: string | undefined): string | undefined {
     const password = credsPart.substring(firstColonIndex + 1);
     
     // Auto-encode @ and other characters that might break URI parsing
-    // But keep already encoded parts as is if possible, or just re-encode
-    const encodedPassword = encodeURIComponent(decodeURIComponent(password));
+    // But keep already encoded parts as is if possible
+    let decodedPassword = password;
+    try {
+      // Only decode if it looks like it might be encoded (contains %)
+      if (password.includes('%')) {
+        decodedPassword = decodeURIComponent(password);
+      }
+    } catch (e) {
+      console.warn('[DB Config] Password contains % but is not a valid escape sequence, using as is.');
+    }
+    const encodedPassword = encodeURIComponent(decodedPassword);
     
-    return `${protocolPart}://${username}:${encodedPassword}@${hostPart}`;
+    const sanitized = `${protocolPart}://${username}:${encodedPassword}@${hostPart}`;
+    return sanitized;
   } catch (e) {
     console.error('[DB Config] Failed to sanitize URL:', e);
     return url;
@@ -72,11 +84,16 @@ const createConfig = () => {
     keepAlive: true,
   };
 
+  if (connectionString.includes('supabase.co')) {
+    console.log('[DB Config] ⚡ Supabase detected. Using optimized pool settings.');
+  }
+
   return config;
 };
 
 // Create the pool once
-export const pool = new Pool(createConfig());
+const poolConfig = createConfig();
+export const pool = new Pool(poolConfig);
 
 pool.on('error', (err) => {
   console.error('[DB Pool] Unexpected error on idle client:', err.message);
