@@ -12,6 +12,6 @@ if (typeof dns.setDefaultResultOrder === 'function') {
 // or ensure server.ts is exportable.
 // For now, let's just make server.ts export 'app' and import it here.
 
-import app from '../server.ts'; // Using .js extension for ESM compatibility after bundling/compilation if needed, but tsx/vercel-node might prefer .ts or just server.ts
+import { app } from '../server.ts';
 
 export default app;

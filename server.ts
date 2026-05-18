@@ -16,7 +16,7 @@ import { eq, and, sql } from 'drizzle-orm';
 import multer from 'multer';
 import * as XLSX from 'xlsx';
 import dotenv from 'dotenv';
-import { mockStore } from './server/mockStore.ts';
+import { mockStore } from './server_data/mockStore.ts';
 
 dotenv.config();
 
